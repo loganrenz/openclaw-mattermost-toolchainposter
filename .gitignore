@@ -17,7 +17,7 @@ node_modules/
 Thumbs.db
 
 # Test data (contains secrets)
-test/data/
+test/**/*
 
 # Logs
 *.log

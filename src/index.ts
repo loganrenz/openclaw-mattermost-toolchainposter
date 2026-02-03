@@ -137,70 +137,82 @@ const plugin = {
     const pluginEntry = pluginsSection?.entries?.['openclaw-mattermost-toolchain-poster'];
     const pluginConfig = pluginEntry?.config ?? {} as PluginConfig;
     
-    // Also get Mattermost channel config for bot token fallback
-    type MattermostAccount = { token?: string; url?: string };
+    // Get Mattermost channel config - store ALL accounts for multi-bot support
+    type MattermostAccount = { token?: string; url?: string; username?: string };
     type MattermostChannelConfig = { 
-      accounts?: Record<string, MattermostAccount> | MattermostAccount;
+      accounts?: Record<string, MattermostAccount>;
       url?: string;
     };
     const mattermostChannel = (fullConfig.channels as { mattermost?: MattermostChannelConfig })?.mattermost;
     
-    // Try to get bot token from channel config if not in plugin config
-    let channelBotToken: string | undefined;
-    let channelBaseUrl: string | undefined;
+    // Store all accounts keyed by account name (e.g., "default", "phantombot", etc.)
+    const botAccounts = new Map<string, { token: string; url?: string }>();
+    let defaultBaseUrl = mattermostChannel?.url || pluginConfig.baseUrl || process.env.MATTERMOST_URL;
     
     if (mattermostChannel?.accounts) {
-      const accounts = mattermostChannel.accounts;
-      // Could be a single account object or keyed by account name
-      if (typeof accounts === 'object') {
-        // Check if it's an array or object with multiple accounts
-        const accountList = Array.isArray(accounts) ? accounts : Object.values(accounts);
-        const firstAccount = accountList[0] as MattermostAccount | undefined;
-        if (firstAccount?.token) {
-          channelBotToken = firstAccount.token;
-          channelBaseUrl = firstAccount.url;
+      for (const [accountName, account] of Object.entries(mattermostChannel.accounts)) {
+        if (account?.token) {
+          botAccounts.set(accountName, {
+            token: account.token,
+            url: account.url || defaultBaseUrl,
+          });
+          // Also store by username if available (for matching against agent)
+          if (account.username) {
+            botAccounts.set(account.username, {
+              token: account.token,
+              url: account.url || defaultBaseUrl,
+            });
+          }
         }
       }
     }
-    // Also check for URL at channel level
-    channelBaseUrl = channelBaseUrl || mattermostChannel?.url;
     
-    console.info('[mattermost-toolchain-poster] Plugin config:', JSON.stringify(pluginConfig));
-    console.info('[mattermost-toolchain-poster] Channel bot token available:', channelBotToken ? 'yes' : 'no');
+    // Also add from plugin config / env as fallback with key "default"
+    const envToken = pluginConfig.botToken || process.env.MATTERMOST_BOT_TOKEN;
+    if (envToken) {
+      botAccounts.set('default', {
+        token: envToken,
+        url: defaultBaseUrl,
+      });
+    }
     
-    // Priority: plugin config > channel config > environment variables
-    const baseUrl = pluginConfig.baseUrl || channelBaseUrl || process.env.MATTERMOST_URL;
-    const botToken = pluginConfig.botToken || channelBotToken || process.env.MATTERMOST_BOT_TOKEN;
     const webhookUrl = pluginConfig.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
     
-    console.info('[mattermost-toolchain-poster] baseUrl:', baseUrl ? 'set' : 'not set');
-    console.info('[mattermost-toolchain-poster] botToken:', botToken ? 'set' : 'not set');
+    console.info('[mattermost-toolchain-poster] Bot accounts configured:', [...botAccounts.keys()]);
+    console.info('[mattermost-toolchain-poster] Default base URL:', defaultBaseUrl);
     
-    // Validate - need either REST API or webhook
-    const hasRestApi = !!(baseUrl && botToken);
-    const hasWebhook = !!webhookUrl;
-
-    if (!hasRestApi && !hasWebhook) {
-      console.warn('[mattermost-toolchain-poster] No Mattermost connection configured. Will use bot token from Mattermost channel if available.');
+    // Helper to get the right client for a given agent/context
+    const getClient = (agentId?: string): MattermostClient | null => {
+      // Try to find account matching the agent
+      let account = agentId ? botAccounts.get(agentId) : undefined;
+      
+      // Fallback to 'default' account
+      if (!account) {
+        account = botAccounts.get('default') || [...botAccounts.values()][0];
+      }
+      
+      if (!account?.token && !webhookUrl) {
+        return null;
+      }
+      
+      return new MattermostClient({
+        webhookUrl,
+        baseUrl: account?.url || defaultBaseUrl,
+        botToken: account?.token,
+        channel: pluginConfig.channel,
+        username: pluginConfig.username ?? 'OpenClaw Agent',
+        iconEmoji: pluginConfig.iconEmoji ?? ':robot:',
+        iconUrl: pluginConfig.iconUrl,
+      });
+    };
+    
+    // Check if we have any valid configuration
+    if (botAccounts.size === 0 && !webhookUrl) {
+      console.warn('[mattermost-toolchain-poster] No Mattermost connection configured.');
       return;
     }
-
-    if (hasRestApi) {
-      console.log('[mattermost-toolchain-poster] Using REST API for posting to DMs');
-      console.log('[mattermost-toolchain-poster] Base URL:', baseUrl);
-    } else {
-      console.log('[mattermost-toolchain-poster] Using webhook (fixed channel only):', webhookUrl?.substring(0, 50) + '...');
-    }
-
-    const client = new MattermostClient({
-      webhookUrl,
-      baseUrl,
-      botToken,
-      channel: pluginConfig.channel,
-      username: pluginConfig.username ?? 'OpenClaw Agent',
-      iconEmoji: pluginConfig.iconEmoji ?? ':robot:',
-      iconUrl: pluginConfig.iconUrl,
-    });
+    
+    console.log('[mattermost-toolchain-poster] Plugin registered with', botAccounts.size, 'bot account(s)');
 
     const excludedTools = new Set(pluginConfig.excludeTools ?? ['message']);
     const includeResults = pluginConfig.includeResults ?? true;
@@ -221,7 +233,8 @@ const plugin = {
           console.log('[mattermost-toolchain-poster] Session halted:', sessionKey);
           
           // Also post to Mattermost
-          if (client.hasRestApi() && (ctx.senderId || lastSenderId)) {
+          const client = getClient();
+          if (client?.hasRestApi() && (ctx.senderId || lastSenderId)) {
             await client.postToDm(ctx.senderId || lastSenderId!, '🛑 Agent halted. Tool calls will be blocked until you send a new message.');
           }
           
@@ -296,6 +309,12 @@ const plugin = {
 
       try {
         let postId: string | undefined;
+        const client = getClient();
+        
+        if (!client) {
+          console.warn('[mattermost-toolchain-poster] No client available for posting');
+          return undefined;
+        }
         
         // Try to post to DM if we have REST API and sender ID
         if (postToConversation && client.hasRestApi() && lastSenderId) {
@@ -316,7 +335,8 @@ const plugin = {
         console.error('[mattermost-toolchain-poster] Failed to post tool call:', error);
         // Try webhook as fallback
         try {
-          await client.postToWebhook(message);
+          const fallbackClient = getClient();
+          if (fallbackClient) await fallbackClient.postToWebhook(message);
         } catch (webhookError) {
           console.error('[mattermost-toolchain-poster] Webhook fallback also failed:', webhookError);
         }
@@ -345,6 +365,9 @@ const plugin = {
       );
 
       try {
+        const client = getClient();
+        if (!client) return;
+        
         // Try to post to DM if we have REST API and sender ID
         if (postToConversation && client.hasRestApi() && lastSenderId) {
           await client.postToDm(lastSenderId, message);
@@ -355,7 +378,8 @@ const plugin = {
         console.error('[mattermost-toolchain-poster] Failed to post tool result:', err);
         // Try webhook as fallback
         try {
-          await client.postToWebhook(message);
+          const fallbackClient = getClient();
+          if (fallbackClient) await fallbackClient.postToWebhook(message);
         } catch {
           // Silent fail on fallback
         }
