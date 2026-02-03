@@ -123,14 +123,25 @@ const plugin = {
         const webhookUrl = pluginConfig.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
         console.debug('[mattermost-toolchain-poster] Bot accounts configured:', [...botAccounts.keys()]);
         console.debug('[mattermost-toolchain-poster] Default base URL:', defaultBaseUrl);
+        // Helper to extract agent name from session key (e.g., "session:agent:ops:main" -> "ops")
+        const extractAgentFromSessionKey = (sessionKey) => {
+            if (!sessionKey)
+                return undefined;
+            // Pattern: session:agent:AGENT_NAME:...
+            const match = sessionKey.match(/^session:agent:([^:]+)/);
+            return match?.[1];
+        };
         // Helper to get the right client for a given agent/context
-        const getClient = (agentId) => {
+        const getClient = (sessionKey) => {
+            // Extract agent name from session key
+            const agentId = extractAgentFromSessionKey(sessionKey);
             // Try to find account matching the agent
             let account = agentId ? botAccounts.get(agentId) : undefined;
             // Fallback to 'default' account
             if (!account) {
                 account = botAccounts.get('default') || [...botAccounts.values()][0];
             }
+            console.debug('[mattermost-toolchain-poster] Selected bot account for agent:', agentId, '->', account ? 'found' : 'fallback to default');
             if (!account?.token && !webhookUrl) {
                 return null;
             }
@@ -155,6 +166,7 @@ const plugin = {
         const truncateAt = pluginConfig.truncateResultsAt ?? 2000;
         const postToConversation = pluginConfig.postToConversation ?? true;
         const enableHaltCommands = pluginConfig.enableHaltCommands ?? false;
+        let lastSessionKey; // Track session key for after_tool_call
         // Register /halt command if available and enabled (note: /stop is reserved by OpenClaw)
         if (enableHaltCommands && api.registerCommand) {
             api.registerCommand({
@@ -220,6 +232,8 @@ const plugin = {
             console.debug('[mattermost-toolchain-poster] Session key:', ctx.sessionKey);
             console.debug('[mattermost-toolchain-poster] Last sender ID:', lastSenderId);
             console.debug('[mattermost-toolchain-poster] Excluded tools:', [...excludedTools]);
+            // Store session key for use in after_tool_call
+            lastSessionKey = ctx.sessionKey;
             // Check if session is stopped - block all tool calls if so (only when halt commands enabled)
             if (enableHaltCommands) {
                 const sessionKey = lastSenderId ?? ctx.sessionKey ?? 'default';
@@ -241,7 +255,7 @@ const plugin = {
             const toolCallId = `${ctx.sessionKey ?? 'default'}-${toolName}-${Date.now()}`;
             try {
                 let postId;
-                const client = getClient();
+                const client = getClient(ctx.sessionKey);
                 if (!client) {
                     console.warn('[mattermost-toolchain-poster] No client available for posting');
                     return undefined;
@@ -266,7 +280,7 @@ const plugin = {
                 console.error('[mattermost-toolchain-poster] Failed to post tool call:', error);
                 // Try webhook as fallback
                 try {
-                    const fallbackClient = getClient();
+                    const fallbackClient = getClient(ctx.sessionKey);
                     if (fallbackClient)
                         await fallbackClient.postToWebhook(message);
                 }
@@ -287,7 +301,7 @@ const plugin = {
             const duration = durationMs ?? 0;
             const message = formatToolResult(toolName, error ? { error } : result, duration, truncateAt);
             try {
-                const client = getClient();
+                const client = getClient(lastSessionKey);
                 if (!client)
                     return;
                 // Try to post to DM if we have REST API and sender ID
@@ -302,7 +316,7 @@ const plugin = {
                 console.error('[mattermost-toolchain-poster] Failed to post tool result:', err);
                 // Try webhook as fallback
                 try {
-                    const fallbackClient = getClient();
+                    const fallbackClient = getClient(lastSessionKey);
                     if (fallbackClient)
                         await fallbackClient.postToWebhook(message);
                 }
