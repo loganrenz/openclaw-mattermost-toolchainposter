@@ -287,8 +287,10 @@ const plugin = {
         }
       }
     });
+    console.info('[mattermost-toolchain-poster] Registered message_received hook');
 
     // Hook: before_tool_call
+    console.info('[mattermost-toolchain-poster] Registering before_tool_call hook...');
     api.on('before_tool_call', async (...args: unknown[]) => {
       const event = args[0] as BeforeToolCallEvent;
       const ctx = args[1] as ToolContext;
@@ -400,8 +402,9 @@ const plugin = {
         }
       }
     });
+    console.info('[mattermost-toolchain-poster] Registered after_tool_call hook');
 
-    console.log('[mattermost-toolchain-poster] Plugin registered successfully');
+    console.log('[mattermost-toolchain-poster] Plugin registered successfully - all hooks ready');
   },
 };
 
