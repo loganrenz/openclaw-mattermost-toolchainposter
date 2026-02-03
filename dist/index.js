@@ -80,7 +80,9 @@ const plugin = {
         required: [],
     },
     register(api) {
-        const config = api.config;
+        // OpenClaw passes config nested under 'config' key, but also check flat for backwards compat
+        const rawConfig = api.config;
+        const config = rawConfig.config ?? rawConfig;
         // Get config from options or environment variables
         const webhookUrl = config.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
         const baseUrl = config.baseUrl || process.env.MATTERMOST_URL;
