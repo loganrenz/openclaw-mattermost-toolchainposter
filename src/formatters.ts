@@ -1,0 +1,134 @@
+/**
+ * Message formatters for tool call and result posts
+ * Compact format for less visual noise in Mattermost
+ */
+
+/**
+ * Format a tool call message for Mattermost (compact version)
+ */
+export function formatToolCall(toolName: string, params: Record<string, unknown>): string {
+  const paramsStr = formatParamsCompact(params);
+  
+  // Single line format with collapsed params
+  return `:wrench: **${toolName}**\n> ${paramsStr}`;
+}
+
+/**
+ * Format a tool result message for Mattermost (compact version)
+ */
+export function formatToolResult(
+  toolName: string,
+  result: unknown,
+  durationMs: number,
+  truncateAt: number
+): string {
+  const durationStr = durationMs > 0 ? ` (${formatDuration(durationMs)})` : '';
+  const resultText = formatResultCompact(result, truncateAt);
+  const isError = result && typeof result === 'object' && 'error' in result;
+
+  const emoji = isError ? ':x:' : ':white_check_mark:';
+
+  return `${emoji} **${toolName}**${durationStr}\n> ${resultText}`;
+}
+
+/**
+ * Format parameters compactly - one line if small, otherwise truncated
+ */
+function formatParamsCompact(params: Record<string, unknown>): string {
+  try {
+    // For common single-value params, format nicely
+    const keys = Object.keys(params);
+    
+    if (keys.length === 0) {
+      return '(no params)';
+    }
+    
+    if (keys.length === 1) {
+      const key = keys[0];
+      const value = params[key];
+      return `\`${key}\`: ${formatValue(value)}`;
+    }
+    
+    // Multiple params - show as key=value pairs, truncated
+    const pairs = keys.map(k => `${k}=${formatValue(params[k])}`);
+    const str = pairs.join(', ');
+    return truncateText(str, 200);
+  } catch {
+    return String(params);
+  }
+}
+
+/**
+ * Format a single value compactly
+ */
+function formatValue(value: unknown): string {
+  if (typeof value === 'string') {
+    const truncated = truncateText(value, 100);
+    return `\`${truncated}\``;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return `\`${value}\``;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.length} items]`;
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value);
+    return `{${keys.length} keys}`;
+  }
+  return String(value);
+}
+
+/**
+ * Format result content compactly
+ */
+function formatResultCompact(result: unknown, truncateAt: number): string {
+  if (result === undefined || result === null) {
+    return '(empty)';
+  }
+  
+  // For error results
+  if (result && typeof result === 'object' && 'error' in result) {
+    const err = (result as { error: string }).error;
+    return truncateText(err, truncateAt);
+  }
+  
+  // For string results
+  if (typeof result === 'string') {
+    return truncateText(result, truncateAt);
+  }
+  
+  // For objects, show truncated JSON
+  try {
+    const json = JSON.stringify(result);
+    return truncateText(json, truncateAt);
+  } catch {
+    return String(result);
+  }
+}
+
+/**
+ * Truncate text to a maximum length with ellipsis
+ */
+export function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return text.slice(0, maxLength) + '...';
+}
+
+/**
+ * Format duration in human-readable form
+ */
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  if (ms < 60000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  const minutes = Math.floor(ms / 60000);
+  const seconds = ((ms % 60000) / 1000).toFixed(0);
+  return `${minutes}m ${seconds}s`;
+}

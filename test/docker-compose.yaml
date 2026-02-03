@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  openclaw:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile
+    container_name: openclaw-test
+    ports:
+      - '18789:18789'
+    environment:
+      # Mattermost connection
+      - MATTERMOST_BOT_TOKEN=${MATTERMOST_BOT_TOKEN:-u391m7kggb85ug4wo691hx7rww}
+      - MATTERMOST_URL=${MATTERMOST_URL:-https://mattermost.home.nard.uk}
+
+      # Plugin webhook for tool posting
+      - MATTERMOST_WEBHOOK_URL=${MATTERMOST_WEBHOOK_URL:-https://mattermost.home.nard.uk/hooks/dgqmb3thppfypdoiyewq9bo87o}
+
+      # Anthropic auth via env vars
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-dummy}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-https://ag.home.nard.uk}
+
+      # Gateway settings
+      - OPENCLAW_PORT=18789
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-test-token-12345}
+    volumes:
+      # Persist config and data
+      - ./data:/root/.openclaw
+      # Mount plugin for development
+      - ../:/app/plugins/mattermost-toolchain-poster:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:18789/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  openclaw-data:

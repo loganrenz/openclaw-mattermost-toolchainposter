@@ -1,0 +1,61 @@
+# OpenClaw Configuration for Mattermost Testing
+#
+# Copy this to ~/.openclaw/config.yaml and restart the gateway
+
+# Gateway mode - local allows running without full setup
+gateway:
+  mode: local
+
+# Model configuration
+models:
+  default: 'antigravity/gemini-3-flash'
+
+# Mattermost channel configuration
+channels:
+  mattermost:
+    enabled: true
+    botToken: 'u391m7kggb85ug4wo691hx7rww'
+    baseUrl: 'https://mattermost.home.nard.uk'
+
+    # Access control
+    dmPolicy: 'open' # Allow DMs from anyone
+    allowFrom: ['*'] # Accept messages from all users
+
+    # Channel settings
+    groupPolicy: 'open' # Allow mentions in any channel
+    chatmode: 'oncall' # Respond when @mentioned
+
+# Plugin configuration
+plugins:
+  enabled: true
+  entries:
+    # Mattermost channel plugin (required)
+    mattermost:
+      enabled: true
+
+    # Our toolchain poster plugin
+    openclaw-mattermost-toolchain-poster:
+      enabled: true
+      config:
+        # Incoming webhook for posting tool calls
+        webhookUrl: 'https://mattermost.home.nard.uk/hooks/u391m7kggb85ug4wo691hx7rww'
+
+        # Bot display settings
+        username: 'OpenClaw Tools'
+        iconEmoji: ':wrench:'
+
+        # Result posting
+        includeResults: true
+        truncateResultsAt: 2000
+
+# Agent configuration
+agents:
+  defaults:
+    timeoutSeconds: 600
+  list:
+    - id: main
+      model: 'antigravity/gemini-3-flash'
+      tools:
+        allow:
+          - 'group:plugins' # Enable all plugin tools
+
