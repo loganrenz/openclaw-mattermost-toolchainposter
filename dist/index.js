@@ -6,7 +6,7 @@
  */
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
-const PLUGIN_VERSION = '1.3.8';
+const PLUGIN_VERSION = '1.3.9';
 // Store for correlating before/after calls
 const pendingCalls = new Map();
 // Track the most recent sender ID from message_received for DM posting
@@ -138,11 +138,14 @@ const plugin = {
             const agentId = extractAgentFromSessionKey(sessionKey);
             // Try to find account matching the agent
             let account = agentId ? botAccounts.get(agentId) : undefined;
+            let selectedAccountName = agentId;
             // Fallback to 'default' account
             if (!account) {
                 account = botAccounts.get('default') || [...botAccounts.values()][0];
+                selectedAccountName = account ? 'default (fallback)' : 'none';
             }
-            console.debug('[mattermost-toolchain-poster] Selected bot account for agent:', agentId, '->', account ? 'found' : 'fallback to default');
+            // Log which bot was selected (info level for visibility)
+            console.log(`[mattermost-toolchain-poster] Bot selection: sessionKey=${sessionKey?.substring(0, 30) || 'undefined'} -> agent=${agentId || 'none'} -> account=${selectedAccountName}`);
             if (!account?.token && !webhookUrl) {
                 return null;
             }
