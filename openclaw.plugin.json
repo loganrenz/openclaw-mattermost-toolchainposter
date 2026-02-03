@@ -9,7 +9,15 @@
     "properties": {
       "webhookUrl": {
         "type": "string",
-        "description": "Mattermost incoming webhook URL"
+        "description": "Mattermost incoming webhook URL (fallback if REST API not configured)"
+      },
+      "baseUrl": {
+        "type": "string",
+        "description": "Mattermost server base URL for REST API (e.g., https://mattermost.example.com)"
+      },
+      "botToken": {
+        "type": "string",
+        "description": "Bot token for REST API authentication"
       },
       "channel": {
         "type": "string",
@@ -42,15 +50,33 @@
       "excludeTools": {
         "type": "array",
         "items": { "type": "string" },
-        "default": [],
+        "default": ["message"],
         "description": "Tool names to exclude from posting"
+      },
+      "postToConversation": {
+        "type": "boolean",
+        "default": true,
+        "description": "Post to originating conversation DM (requires REST API)"
+      },
+      "enableHaltCommands": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable /halt and /unhalt commands to interrupt agent"
       }
     },
     "required": []
   },
   "uiHints": {
+    "baseUrl": {
+      "label": "Mattermost URL",
+      "placeholder": "https://mattermost.example.com"
+    },
+    "botToken": {
+      "label": "Bot Token",
+      "sensitive": true
+    },
     "webhookUrl": {
-      "label": "Webhook URL",
+      "label": "Webhook URL (fallback)",
       "sensitive": true,
       "placeholder": "https://mattermost.example.com/hooks/xxx"
     },
@@ -76,6 +102,12 @@
     },
     "excludeTools": {
       "label": "Excluded Tools"
+    },
+    "postToConversation": {
+      "label": "Post to Conversation DM"
+    },
+    "enableHaltCommands": {
+      "label": "Enable /halt and /unhalt"
     }
   }
 }
