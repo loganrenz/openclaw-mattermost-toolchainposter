@@ -6,6 +6,7 @@
  */
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
+const PLUGIN_VERSION = '1.3.8';
 // Store for correlating before/after calls
 const pendingCalls = new Map();
 // Track the most recent sender ID from message_received for DM posting
@@ -160,7 +161,7 @@ const plugin = {
             console.warn('[mattermost-toolchain-poster] No Mattermost connection configured.');
             return;
         }
-        console.log('[mattermost-toolchain-poster] Plugin registered with', botAccounts.size, 'bot account(s)');
+        console.log(`[mattermost-toolchain-poster v${PLUGIN_VERSION}] Plugin registered with`, botAccounts.size, 'bot account(s)');
         const excludedTools = new Set(pluginConfig.excludeTools ?? ['message']);
         const includeResults = pluginConfig.includeResults ?? true;
         const truncateAt = pluginConfig.truncateResultsAt ?? 2000;
@@ -326,7 +327,7 @@ const plugin = {
             }
         });
         console.debug('[mattermost-toolchain-poster] Registered after_tool_call hook');
-        console.log('[mattermost-toolchain-poster] Plugin registered successfully - all hooks ready');
+        console.log(`[mattermost-toolchain-poster v${PLUGIN_VERSION}] Plugin registered successfully - all hooks ready`);
     },
 };
 export default plugin;

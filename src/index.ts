@@ -9,6 +9,8 @@ import type { PluginConfig } from './types.js';
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
 
+const PLUGIN_VERSION = '1.3.8';
+
 // Store for correlating before/after calls
 const pendingCalls = new Map<string, { postId?: string; toolName: string; startTime: number }>();
 
@@ -232,7 +234,7 @@ const plugin = {
       return;
     }
     
-    console.log('[mattermost-toolchain-poster] Plugin registered with', botAccounts.size, 'bot account(s)');
+    console.log(`[mattermost-toolchain-poster v${PLUGIN_VERSION}] Plugin registered with`, botAccounts.size, 'bot account(s)');
 
     const excludedTools = new Set(pluginConfig.excludeTools ?? ['message']);
     const includeResults = pluginConfig.includeResults ?? true;
@@ -421,7 +423,7 @@ const plugin = {
     });
     console.debug('[mattermost-toolchain-poster] Registered after_tool_call hook');
 
-    console.log('[mattermost-toolchain-poster] Plugin registered successfully - all hooks ready');
+    console.log(`[mattermost-toolchain-poster v${PLUGIN_VERSION}] Plugin registered successfully - all hooks ready`);
   },
 };
 
