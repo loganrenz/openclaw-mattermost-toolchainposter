@@ -7,9 +7,11 @@
  */
 export declare function formatToolCall(toolName: string, params: Record<string, unknown>): string;
 /**
- * Format a tool result message for Mattermost (compact version)
+ * Format a tool result message for Mattermost
+ * Uses code blocks for long outputs (Mattermost doesn't support HTML details tags)
+ * Truncates to maxLines to keep output manageable
  */
-export declare function formatToolResult(toolName: string, result: unknown, durationMs: number, truncateAt: number): string;
+export declare function formatToolResult(toolName: string, result: unknown, durationMs: number, truncateAt: number, maxLines?: number): string;
 /**
  * Truncate text to a maximum length with ellipsis
  */

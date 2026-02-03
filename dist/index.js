@@ -6,7 +6,7 @@
  */
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
-const PLUGIN_VERSION = '1.3.10';
+const PLUGIN_VERSION = '1.3.12';
 // Store for correlating before/after calls
 const pendingCalls = new Map();
 // Track the most recent sender ID from message_received for DM posting
@@ -173,6 +173,7 @@ const plugin = {
         const excludedTools = new Set(pluginConfig.excludeTools ?? ['message']);
         const includeResults = pluginConfig.includeResults ?? true;
         const truncateAt = pluginConfig.truncateResultsAt ?? 2000;
+        const maxLines = pluginConfig.maxLines ?? 20;
         const postToConversation = pluginConfig.postToConversation ?? true;
         const enableHaltCommands = pluginConfig.enableHaltCommands ?? false;
         let lastSessionKey; // Track session key for after_tool_call
@@ -297,44 +298,65 @@ const plugin = {
                     console.error('[mattermost-toolchain-poster] Webhook fallback also failed:', webhookError);
                 }
             }
+            console.log('[mattermost-toolchain-poster] Returning from before_tool_call hook');
             return undefined;
         });
-        // Hook: after_tool_call
-        api.on('after_tool_call', async (...args) => {
+        // Hook: tool_result_persist (sync hook that fires after tool execution)
+        // Note: after_tool_call may not be dispatched in some OpenClaw versions,
+        // but tool_result_persist reliably fires after every tool execution.
+        api.on('tool_result_persist', (...args) => {
+            console.log('[mattermost-toolchain-poster] === TOOL_RESULT_PERSIST ===');
             const event = args[0];
-            const { toolName, result, error, durationMs } = event;
+            const { toolName, message: msg } = event;
+            // Extract result from the correct path in the event structure
+            // Result is in message.content[0].text or message.details.aggregated
+            const resultText = msg?.content?.[0]?.text || msg?.details?.aggregated || '';
+            const isError = msg?.isError || false;
+            const durationMs = msg?.details?.durationMs || 0;
+            console.log('[mattermost-toolchain-poster] Tool:', toolName);
+            console.log('[mattermost-toolchain-poster] Result length:', resultText.length);
+            console.log('[mattermost-toolchain-poster] Is error:', isError);
+            console.log('[mattermost-toolchain-poster] Duration:', durationMs);
             // Skip if results disabled or tool excluded
             if (!includeResults || excludedTools.has(toolName)) {
-                return;
+                console.log('[mattermost-toolchain-poster] Skipping - results disabled or excluded tool');
+                return undefined;
             }
-            const duration = durationMs ?? 0;
-            const message = formatToolResult(toolName, error ? { error } : result, duration, truncateAt);
-            try {
-                const client = getClient(lastSessionKey);
-                if (!client)
-                    return;
-                // Try to post to DM if we have REST API and sender ID
-                if (postToConversation && client.hasRestApi() && lastSenderId) {
-                    await client.postToDm(lastSenderId, message);
-                }
-                else {
-                    await client.postToWebhook(message);
-                }
-            }
-            catch (err) {
-                console.error('[mattermost-toolchain-poster] Failed to post tool result:', err);
-                // Try webhook as fallback
+            const formattedMessage = formatToolResult(toolName, isError ? { error: resultText } : resultText, durationMs, truncateAt, maxLines);
+            // Since this is a sync hook, we need to fire and forget the post
+            // We can't await here, so just call the async function
+            const postResult = async () => {
                 try {
-                    const fallbackClient = getClient(lastSessionKey);
-                    if (fallbackClient)
-                        await fallbackClient.postToWebhook(message);
+                    const client = getClient(lastSessionKey);
+                    if (!client)
+                        return;
+                    // Try to post to DM if we have REST API and sender ID
+                    if (postToConversation && client.hasRestApi() && lastSenderId) {
+                        console.log('[mattermost-toolchain-poster] Posting tool result to DM with user:', lastSenderId);
+                        await client.postToDm(lastSenderId, formattedMessage);
+                    }
+                    else {
+                        await client.postToWebhook(formattedMessage);
+                    }
                 }
-                catch {
-                    // Silent fail on fallback
+                catch (err) {
+                    console.error('[mattermost-toolchain-poster] Failed to post tool result:', err);
+                    // Try webhook as fallback
+                    try {
+                        const fallbackClient = getClient(lastSessionKey);
+                        if (fallbackClient)
+                            await fallbackClient.postToWebhook(formattedMessage);
+                    }
+                    catch {
+                        // Silent fail on fallback
+                    }
                 }
-            }
+            };
+            // Fire and forget
+            postResult().catch(console.error);
+            return undefined; // Don't modify the result
         });
-        console.debug('[mattermost-toolchain-poster] Registered after_tool_call hook');
+        console.debug('[mattermost-toolchain-poster] Registered tool_result_persist hook');
         console.log(`[mattermost-toolchain-poster v${PLUGIN_VERSION}] Plugin registered successfully - all hooks ready`);
     },
 };

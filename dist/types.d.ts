@@ -20,6 +20,8 @@ export interface PluginConfig {
     includeResults?: boolean;
     /** Maximum characters for tool result output (default: 2000) */
     truncateResultsAt?: number;
+    /** Maximum lines for tool result output (default: 20) */
+    maxLines?: number;
     /** Tool names to exclude from posting */
     excludeTools?: string[];
     /** Post to original conversation channel when available (default: true with REST API) */

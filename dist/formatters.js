@@ -11,14 +11,36 @@ export function formatToolCall(toolName, params) {
     return `:wrench: **${toolName}**\n> ${paramsStr}`;
 }
 /**
- * Format a tool result message for Mattermost (compact version)
+ * Format a tool result message for Mattermost
+ * Uses code blocks for long outputs (Mattermost doesn't support HTML details tags)
+ * Truncates to maxLines to keep output manageable
  */
-export function formatToolResult(toolName, result, durationMs, truncateAt) {
+export function formatToolResult(toolName, result, durationMs, truncateAt, maxLines = 20) {
     const durationStr = durationMs > 0 ? ` (${formatDuration(durationMs)})` : '';
-    const resultText = formatResultCompact(result, truncateAt);
+    let resultText = formatResultCompact(result, truncateAt);
     const isError = result && typeof result === 'object' && 'error' in result;
     const emoji = isError ? ':x:' : ':white_check_mark:';
+    // Truncate by lines if needed
+    resultText = truncateLines(resultText, maxLines);
+    // For longer outputs (> 100 chars), use a code block
+    // Mattermost's native "Show more" will handle collapsing
+    if (resultText.length > 100) {
+        return `${emoji} **${toolName}**${durationStr}\n\`\`\`\n${resultText}\n\`\`\``;
+    }
+    // For short outputs, use a simple blockquote
     return `${emoji} **${toolName}**${durationStr}\n> ${resultText}`;
+}
+/**
+ * Truncate text to a maximum number of lines
+ */
+function truncateLines(text, maxLines) {
+    const lines = text.split('\n');
+    if (lines.length <= maxLines) {
+        return text;
+    }
+    const truncated = lines.slice(0, maxLines).join('\n');
+    const remaining = lines.length - maxLines;
+    return `${truncated}\n... (${remaining} more lines)`;
 }
 /**
  * Format parameters compactly - one line if small, otherwise truncated
