@@ -1,6 +1,6 @@
 {
   "name": "openclaw-mattermost-toolchain-poster",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "OpenClaw plugin that posts tool call information to Mattermost channels",
   "type": "module",
   "main": "dist/index.js",
