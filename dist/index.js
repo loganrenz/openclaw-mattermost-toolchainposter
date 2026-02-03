@@ -80,18 +80,18 @@ const plugin = {
         required: [],
     },
     register(api) {
-        console.info('[mattermost-toolchain-poster] === PLUGIN REGISTER START ===');
+        console.debug('[mattermost-toolchain-poster] === PLUGIN REGISTER START ===');
         // OpenClaw passes the entire config object - navigate to our plugin's config
         const fullConfig = api.config;
         // Debug: log what we received
-        console.info('[mattermost-toolchain-poster] Full config keys:', Object.keys(fullConfig || {}));
-        console.info('[mattermost-toolchain-poster] channels:', JSON.stringify(fullConfig.channels));
+        console.debug('[mattermost-toolchain-poster] Full config keys:', Object.keys(fullConfig || {}));
+        console.debug('[mattermost-toolchain-poster] channels:', JSON.stringify(fullConfig.channels));
         // Navigate to plugins.entries['openclaw-mattermost-toolchain-poster'].config
         const pluginsSection = fullConfig.plugins;
         const pluginEntry = pluginsSection?.entries?.['openclaw-mattermost-toolchain-poster'];
         const pluginConfig = pluginEntry?.config ?? {};
         const mattermostChannel = fullConfig.channels?.mattermost;
-        console.info('[mattermost-toolchain-poster] mattermostChannel accounts:', mattermostChannel?.accounts ? Object.keys(mattermostChannel.accounts) : 'none');
+        console.debug('[mattermost-toolchain-poster] mattermostChannel accounts:', mattermostChannel?.accounts ? Object.keys(mattermostChannel.accounts) : 'none');
         // Store all accounts keyed by account name (e.g., "default", "phantombot", etc.)
         const botAccounts = new Map();
         let defaultBaseUrl = mattermostChannel?.url || pluginConfig.baseUrl || process.env.MATTERMOST_URL;
@@ -121,8 +121,8 @@ const plugin = {
             });
         }
         const webhookUrl = pluginConfig.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
-        console.info('[mattermost-toolchain-poster] Bot accounts configured:', [...botAccounts.keys()]);
-        console.info('[mattermost-toolchain-poster] Default base URL:', defaultBaseUrl);
+        console.debug('[mattermost-toolchain-poster] Bot accounts configured:', [...botAccounts.keys()]);
+        console.debug('[mattermost-toolchain-poster] Default base URL:', defaultBaseUrl);
         // Helper to get the right client for a given agent/context
         const getClient = (agentId) => {
             // Try to find account matching the agent
@@ -208,18 +208,18 @@ const plugin = {
                 }
             }
         });
-        console.info('[mattermost-toolchain-poster] Registered message_received hook');
+        console.debug('[mattermost-toolchain-poster] Registered message_received hook');
         // Hook: before_tool_call
-        console.info('[mattermost-toolchain-poster] Registering before_tool_call hook...');
+        console.debug('[mattermost-toolchain-poster] Registering before_tool_call hook...');
         api.on('before_tool_call', async (...args) => {
             const event = args[0];
             const ctx = args[1];
             const { toolName, params } = event;
-            console.info('[mattermost-toolchain-poster] === BEFORE_TOOL_CALL ===');
-            console.info('[mattermost-toolchain-poster] Tool:', toolName);
-            console.info('[mattermost-toolchain-poster] Session key:', ctx.sessionKey);
-            console.info('[mattermost-toolchain-poster] Last sender ID:', lastSenderId);
-            console.info('[mattermost-toolchain-poster] Excluded tools:', [...excludedTools]);
+            console.debug('[mattermost-toolchain-poster] === BEFORE_TOOL_CALL ===');
+            console.debug('[mattermost-toolchain-poster] Tool:', toolName);
+            console.debug('[mattermost-toolchain-poster] Session key:', ctx.sessionKey);
+            console.debug('[mattermost-toolchain-poster] Last sender ID:', lastSenderId);
+            console.debug('[mattermost-toolchain-poster] Excluded tools:', [...excludedTools]);
             // Check if session is stopped - block all tool calls if so (only when halt commands enabled)
             if (enableHaltCommands) {
                 const sessionKey = lastSenderId ?? ctx.sessionKey ?? 'default';
@@ -233,11 +233,11 @@ const plugin = {
             }
             // Skip excluded tools
             if (excludedTools.has(toolName)) {
-                console.info('[mattermost-toolchain-poster] Skipping excluded tool:', toolName);
+                console.debug('[mattermost-toolchain-poster] Skipping excluded tool:', toolName);
                 return undefined;
             }
             const message = formatToolCall(toolName, params);
-            console.info('[mattermost-toolchain-poster] Formatted message:', message.substring(0, 200));
+            console.debug('[mattermost-toolchain-poster] Formatted message:', message.substring(0, 200));
             const toolCallId = `${ctx.sessionKey ?? 'default'}-${toolName}-${Date.now()}`;
             try {
                 let postId;
@@ -311,7 +311,7 @@ const plugin = {
                 }
             }
         });
-        console.info('[mattermost-toolchain-poster] Registered after_tool_call hook');
+        console.debug('[mattermost-toolchain-poster] Registered after_tool_call hook');
         console.log('[mattermost-toolchain-poster] Plugin registered successfully - all hooks ready');
     },
 };
