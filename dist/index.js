@@ -80,13 +80,18 @@ const plugin = {
         required: [],
     },
     register(api) {
-        // OpenClaw passes config nested under 'config' key, but also check flat for backwards compat
+        // Debug: log raw config to understand structure
         const rawConfig = api.config;
+        console.log('[mattermost-toolchain-poster] Raw config:', JSON.stringify(rawConfig, null, 2));
+        // OpenClaw passes config nested under 'config' key, but also check flat for backwards compat
         const config = rawConfig.config ?? rawConfig;
+        console.log('[mattermost-toolchain-poster] Resolved config:', JSON.stringify(config, null, 2));
         // Get config from options or environment variables
         const webhookUrl = config.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
         const baseUrl = config.baseUrl || process.env.MATTERMOST_URL;
         const botToken = config.botToken || process.env.MATTERMOST_BOT_TOKEN;
+        console.log('[mattermost-toolchain-poster] baseUrl:', baseUrl ? 'set' : 'not set');
+        console.log('[mattermost-toolchain-poster] botToken:', botToken ? 'set' : 'not set');
         // Validate - need either REST API or webhook
         const hasRestApi = !!(baseUrl && botToken);
         const hasWebhook = !!webhookUrl;
