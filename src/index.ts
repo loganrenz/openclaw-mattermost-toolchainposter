@@ -137,11 +137,40 @@ const plugin = {
     const pluginEntry = pluginsSection?.entries?.['openclaw-mattermost-toolchain-poster'];
     const pluginConfig = pluginEntry?.config ?? {} as PluginConfig;
     
-    console.info('[mattermost-toolchain-poster] Plugin config:', JSON.stringify(pluginConfig));
+    // Also get Mattermost channel config for bot token fallback
+    type MattermostAccount = { token?: string; url?: string };
+    type MattermostChannelConfig = { 
+      accounts?: Record<string, MattermostAccount> | MattermostAccount;
+      url?: string;
+    };
+    const mattermostChannel = (fullConfig.channels as { mattermost?: MattermostChannelConfig })?.mattermost;
     
-    // Get config from plugin config or environment variables
-    const baseUrl = pluginConfig.baseUrl || process.env.MATTERMOST_URL;
-    const botToken = pluginConfig.botToken || process.env.MATTERMOST_BOT_TOKEN;
+    // Try to get bot token from channel config if not in plugin config
+    let channelBotToken: string | undefined;
+    let channelBaseUrl: string | undefined;
+    
+    if (mattermostChannel?.accounts) {
+      const accounts = mattermostChannel.accounts;
+      // Could be a single account object or keyed by account name
+      if (typeof accounts === 'object') {
+        // Check if it's an array or object with multiple accounts
+        const accountList = Array.isArray(accounts) ? accounts : Object.values(accounts);
+        const firstAccount = accountList[0] as MattermostAccount | undefined;
+        if (firstAccount?.token) {
+          channelBotToken = firstAccount.token;
+          channelBaseUrl = firstAccount.url;
+        }
+      }
+    }
+    // Also check for URL at channel level
+    channelBaseUrl = channelBaseUrl || mattermostChannel?.url;
+    
+    console.info('[mattermost-toolchain-poster] Plugin config:', JSON.stringify(pluginConfig));
+    console.info('[mattermost-toolchain-poster] Channel bot token available:', channelBotToken ? 'yes' : 'no');
+    
+    // Priority: plugin config > channel config > environment variables
+    const baseUrl = pluginConfig.baseUrl || channelBaseUrl || process.env.MATTERMOST_URL;
+    const botToken = pluginConfig.botToken || channelBotToken || process.env.MATTERMOST_BOT_TOKEN;
     const webhookUrl = pluginConfig.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
     
     console.info('[mattermost-toolchain-poster] baseUrl:', baseUrl ? 'set' : 'not set');
@@ -152,7 +181,7 @@ const plugin = {
     const hasWebhook = !!webhookUrl;
 
     if (!hasRestApi && !hasWebhook) {
-      console.warn('[mattermost-toolchain-poster] No Mattermost connection configured. Set MATTERMOST_URL + MATTERMOST_BOT_TOKEN or MATTERMOST_WEBHOOK_URL');
+      console.warn('[mattermost-toolchain-poster] No Mattermost connection configured. Will use bot token from Mattermost channel if available.');
       return;
     }
 
