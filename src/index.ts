@@ -138,7 +138,7 @@ const plugin = {
     const pluginConfig = pluginEntry?.config ?? {} as PluginConfig;
     
     // Get Mattermost channel config - store ALL accounts for multi-bot support
-    type MattermostAccount = { token?: string; url?: string; username?: string };
+    type MattermostAccount = { botToken?: string; baseUrl?: string; name?: string };
     type MattermostChannelConfig = { 
       accounts?: Record<string, MattermostAccount>;
       url?: string;
@@ -151,16 +151,16 @@ const plugin = {
     
     if (mattermostChannel?.accounts) {
       for (const [accountName, account] of Object.entries(mattermostChannel.accounts)) {
-        if (account?.token) {
+        if (account?.botToken) {
           botAccounts.set(accountName, {
-            token: account.token,
-            url: account.url || defaultBaseUrl,
+            token: account.botToken,
+            url: account.baseUrl || defaultBaseUrl,
           });
-          // Also store by username if available (for matching against agent)
-          if (account.username) {
-            botAccounts.set(account.username, {
-              token: account.token,
-              url: account.url || defaultBaseUrl,
+          // Also store by name if available (for matching against agent)
+          if (account.name) {
+            botAccounts.set(account.name, {
+              token: account.botToken,
+              url: account.baseUrl || defaultBaseUrl,
             });
           }
         }
