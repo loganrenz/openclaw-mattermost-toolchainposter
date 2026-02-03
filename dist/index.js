@@ -6,7 +6,7 @@
  */
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
-const PLUGIN_VERSION = '1.3.9';
+const PLUGIN_VERSION = '1.3.10';
 // Store for correlating before/after calls
 const pendingCalls = new Map();
 // Track the most recent sender ID from message_received for DM posting
@@ -124,12 +124,17 @@ const plugin = {
         const webhookUrl = pluginConfig.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
         console.debug('[mattermost-toolchain-poster] Bot accounts configured:', [...botAccounts.keys()]);
         console.debug('[mattermost-toolchain-poster] Default base URL:', defaultBaseUrl);
-        // Helper to extract agent name from session key (e.g., "session:agent:ops:main" -> "ops")
+        // Helper to extract agent name from session key 
+        // Handles both formats: "agent:ops:main" -> "ops" and "session:agent:ops:main" -> "ops"
         const extractAgentFromSessionKey = (sessionKey) => {
             if (!sessionKey)
                 return undefined;
-            // Pattern: session:agent:AGENT_NAME:...
-            const match = sessionKey.match(/^session:agent:([^:]+)/);
+            // Try pattern: agent:AGENT_NAME:... (most common)
+            let match = sessionKey.match(/^agent:([^:]+)/);
+            if (match)
+                return match[1];
+            // Try pattern: session:agent:AGENT_NAME:... (fallback)
+            match = sessionKey.match(/^session:agent:([^:]+)/);
             return match?.[1];
         };
         // Helper to get the right client for a given agent/context

@@ -9,7 +9,7 @@ import type { PluginConfig } from './types.js';
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
 
-const PLUGIN_VERSION = '1.3.9';
+const PLUGIN_VERSION = '1.3.10';
 
 // Store for correlating before/after calls
 const pendingCalls = new Map<string, { postId?: string; toolName: string; startTime: number }>();
@@ -190,11 +190,15 @@ const plugin = {
     console.debug('[mattermost-toolchain-poster] Bot accounts configured:', [...botAccounts.keys()]);
     console.debug('[mattermost-toolchain-poster] Default base URL:', defaultBaseUrl);
     
-    // Helper to extract agent name from session key (e.g., "session:agent:ops:main" -> "ops")
+    // Helper to extract agent name from session key 
+    // Handles both formats: "agent:ops:main" -> "ops" and "session:agent:ops:main" -> "ops"
     const extractAgentFromSessionKey = (sessionKey?: string): string | undefined => {
       if (!sessionKey) return undefined;
-      // Pattern: session:agent:AGENT_NAME:...
-      const match = sessionKey.match(/^session:agent:([^:]+)/);
+      // Try pattern: agent:AGENT_NAME:... (most common)
+      let match = sessionKey.match(/^agent:([^:]+)/);
+      if (match) return match[1];
+      // Try pattern: session:agent:AGENT_NAME:... (fallback)
+      match = sessionKey.match(/^session:agent:([^:]+)/);
       return match?.[1];
     };
     
