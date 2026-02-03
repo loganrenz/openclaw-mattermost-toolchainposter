@@ -82,16 +82,33 @@ const plugin = {
     register(api) {
         // Debug: log raw config to understand structure
         const rawConfig = api.config;
-        console.log('[mattermost-toolchain-poster] Raw config:', JSON.stringify(rawConfig, null, 2));
-        // OpenClaw passes config nested under 'config' key, but also check flat for backwards compat
-        const config = rawConfig.config ?? rawConfig;
-        console.log('[mattermost-toolchain-poster] Resolved config:', JSON.stringify(config, null, 2));
-        // Get config from options or environment variables
-        const webhookUrl = config.webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
-        const baseUrl = config.baseUrl || process.env.MATTERMOST_URL;
-        const botToken = config.botToken || process.env.MATTERMOST_BOT_TOKEN;
-        console.log('[mattermost-toolchain-poster] baseUrl:', baseUrl ? 'set' : 'not set');
-        console.log('[mattermost-toolchain-poster] botToken:', botToken ? 'set' : 'not set');
+        console.info('[mattermost-toolchain-poster] Raw config keys:', Object.keys(rawConfig || {}));
+        console.info('[mattermost-toolchain-poster] Raw config:', rawConfig);
+        // Try multiple access patterns since OpenClaw config structure varies
+        let baseUrl;
+        let botToken;
+        let webhookUrl;
+        // Pattern 1: Direct access (api.config.baseUrl)
+        if (rawConfig?.baseUrl) {
+            baseUrl = rawConfig.baseUrl;
+            botToken = rawConfig.botToken;
+            webhookUrl = rawConfig.webhookUrl;
+            console.info('[mattermost-toolchain-poster] Config pattern: direct');
+        }
+        // Pattern 2: Nested under config (api.config.config.baseUrl)
+        else if (rawConfig?.config?.baseUrl) {
+            const nested = rawConfig.config;
+            baseUrl = nested.baseUrl;
+            botToken = nested.botToken;
+            webhookUrl = nested.webhookUrl;
+            console.info('[mattermost-toolchain-poster] Config pattern: nested');
+        }
+        // Fallback to environment variables
+        baseUrl = baseUrl || process.env.MATTERMOST_URL;
+        botToken = botToken || process.env.MATTERMOST_BOT_TOKEN;
+        webhookUrl = webhookUrl || process.env.MATTERMOST_WEBHOOK_URL;
+        console.info('[mattermost-toolchain-poster] baseUrl:', baseUrl ? 'set' : 'not set');
+        console.info('[mattermost-toolchain-poster] botToken:', botToken ? 'set' : 'not set');
         // Validate - need either REST API or webhook
         const hasRestApi = !!(baseUrl && botToken);
         const hasWebhook = !!webhookUrl;
@@ -110,16 +127,16 @@ const plugin = {
             webhookUrl,
             baseUrl,
             botToken,
-            channel: config.channel,
-            username: config.username ?? 'OpenClaw Agent',
-            iconEmoji: config.iconEmoji ?? ':robot:',
-            iconUrl: config.iconUrl,
+            channel: rawConfig.channel,
+            username: rawConfig.username ?? 'OpenClaw Agent',
+            iconEmoji: rawConfig.iconEmoji ?? ':robot:',
+            iconUrl: rawConfig.iconUrl,
         });
-        const excludedTools = new Set(config.excludeTools ?? ['message']);
-        const includeResults = config.includeResults ?? true;
-        const truncateAt = config.truncateResultsAt ?? 2000;
-        const postToConversation = config.postToConversation ?? true;
-        const enableHaltCommands = config.enableHaltCommands ?? false;
+        const excludedTools = new Set(rawConfig.excludeTools ?? ['message']);
+        const includeResults = rawConfig.includeResults ?? true;
+        const truncateAt = rawConfig.truncateResultsAt ?? 2000;
+        const postToConversation = rawConfig.postToConversation ?? true;
+        const enableHaltCommands = rawConfig.enableHaltCommands ?? false;
         // Register /halt command if available and enabled (note: /stop is reserved by OpenClaw)
         if (enableHaltCommands && api.registerCommand) {
             api.registerCommand({
