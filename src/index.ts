@@ -129,8 +129,14 @@ const plugin = {
   },
 
   register(api: PluginApi) {
+    console.info('[mattermost-toolchain-poster] === PLUGIN REGISTER START ===');
+    
     // OpenClaw passes the entire config object - navigate to our plugin's config
     const fullConfig = api.config as Record<string, unknown>;
+    
+    // Debug: log what we received
+    console.info('[mattermost-toolchain-poster] Full config keys:', Object.keys(fullConfig || {}));
+    console.info('[mattermost-toolchain-poster] channels:', JSON.stringify((fullConfig as Record<string, unknown>).channels));
     
     // Navigate to plugins.entries['openclaw-mattermost-toolchain-poster'].config
     const pluginsSection = fullConfig.plugins as { entries?: Record<string, { config?: PluginConfig }> } | undefined;
@@ -144,6 +150,7 @@ const plugin = {
       url?: string;
     };
     const mattermostChannel = (fullConfig.channels as { mattermost?: MattermostChannelConfig })?.mattermost;
+    console.info('[mattermost-toolchain-poster] mattermostChannel accounts:', mattermostChannel?.accounts ? Object.keys(mattermostChannel.accounts) : 'none');
     
     // Store all accounts keyed by account name (e.g., "default", "phantombot", etc.)
     const botAccounts = new Map<string, { token: string; url?: string }>();
