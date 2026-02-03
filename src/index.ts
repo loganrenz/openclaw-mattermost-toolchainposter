@@ -294,6 +294,12 @@ const plugin = {
       const ctx = args[1] as ToolContext;
       const { toolName, params } = event;
 
+      console.info('[mattermost-toolchain-poster] === BEFORE_TOOL_CALL ===');
+      console.info('[mattermost-toolchain-poster] Tool:', toolName);
+      console.info('[mattermost-toolchain-poster] Session key:', ctx.sessionKey);
+      console.info('[mattermost-toolchain-poster] Last sender ID:', lastSenderId);
+      console.info('[mattermost-toolchain-poster] Excluded tools:', [...excludedTools]);
+
       // Check if session is stopped - block all tool calls if so (only when halt commands enabled)
       if (enableHaltCommands) {
         const sessionKey = lastSenderId ?? ctx.sessionKey ?? 'default';
@@ -308,10 +314,12 @@ const plugin = {
 
       // Skip excluded tools
       if (excludedTools.has(toolName)) {
+        console.info('[mattermost-toolchain-poster] Skipping excluded tool:', toolName);
         return undefined;
       }
 
       const message = formatToolCall(toolName, params);
+      console.info('[mattermost-toolchain-poster] Formatted message:', message.substring(0, 200));
       const toolCallId = `${ctx.sessionKey ?? 'default'}-${toolName}-${Date.now()}`;
 
       try {
