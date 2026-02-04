@@ -9,7 +9,7 @@ import type { PluginConfig } from './types.js';
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
 
-const PLUGIN_VERSION = '1.3.14';
+const PLUGIN_VERSION = '1.3.15';
 
 // Store for correlating before/after calls
 const pendingCalls = new Map<string, { postId?: string; toolName: string; startTime: number }>();
