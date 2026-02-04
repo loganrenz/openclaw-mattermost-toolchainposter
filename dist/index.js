@@ -6,7 +6,7 @@
  */
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
-const PLUGIN_VERSION = '1.3.13';
+const PLUGIN_VERSION = '1.3.14';
 // Store for correlating before/after calls
 const pendingCalls = new Map();
 // Track sender IDs per session/account to prevent crosstalk
@@ -291,7 +291,7 @@ const plugin = {
                     // Only fallback if the message was received recently (within 30 mins)
                     // AND it's not a subagent session (as per user request)
                     const isFresh = (Date.now() - accountEntry.timestamp) < 30 * 60 * 1000;
-                    const isSubagent = ctx.sessionKey?.includes(':sub:');
+                    const isSubagent = ctx.sessionKey?.includes(':subagent:') || ctx.sessionKey?.includes(':cron:');
                     if (isFresh && !isSubagent) {
                         senderId = accountEntry.senderId;
                         console.log(`[mattermost-toolchain-poster] Using fresh account sender fallback: ${senderId} for ${accountName}`);
@@ -378,7 +378,7 @@ const plugin = {
                         const accountEntry = sessionSenders.get(accountName);
                         if (accountEntry) {
                             const isFresh = (Date.now() - accountEntry.timestamp) < 30 * 60 * 1000;
-                            const isSubagent = lastSessionKey?.includes(':sub:');
+                            const isSubagent = lastSessionKey?.includes(':subagent:') || lastSessionKey?.includes(':cron:');
                             if (isFresh && !isSubagent) {
                                 senderId = accountEntry.senderId;
                             }
