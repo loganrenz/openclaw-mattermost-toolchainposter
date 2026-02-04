@@ -6,11 +6,12 @@
  */
 import { MattermostClient } from './mattermost.js';
 import { formatToolCall, formatToolResult } from './formatters.js';
-const PLUGIN_VERSION = '1.3.12';
+const PLUGIN_VERSION = '1.3.13';
 // Store for correlating before/after calls
 const pendingCalls = new Map();
-// Track the most recent sender ID from message_received for DM posting
-let lastSenderId;
+// Track sender IDs per session/account to prevent crosstalk
+// Key: identifier (sessionKey or accountName), Value: { senderId, timestamp }
+const sessionSenders = new Map();
 // Track sessions that have been stopped via /stop command
 const stoppedSessions = new Set();
 // Define the plugin as an object with id, name, configSchema, and register method
@@ -143,26 +144,29 @@ const plugin = {
             const agentId = extractAgentFromSessionKey(sessionKey);
             // Try to find account matching the agent
             let account = agentId ? botAccounts.get(agentId) : undefined;
-            let selectedAccountName = agentId;
+            let selectedAccountName = agentId || 'unknown';
             // Fallback to 'default' account
             if (!account) {
                 account = botAccounts.get('default') || [...botAccounts.values()][0];
-                selectedAccountName = account ? 'default (fallback)' : 'none';
+                selectedAccountName = account ? 'default' : 'none';
             }
             // Log which bot was selected (info level for visibility)
             console.log(`[mattermost-toolchain-poster] Bot selection: sessionKey=${sessionKey?.substring(0, 30) || 'undefined'} -> agent=${agentId || 'none'} -> account=${selectedAccountName}`);
             if (!account?.token && !webhookUrl) {
-                return null;
+                return { client: null, accountName: selectedAccountName };
             }
-            return new MattermostClient({
-                webhookUrl,
-                baseUrl: account?.url || defaultBaseUrl,
-                botToken: account?.token,
-                channel: pluginConfig.channel,
-                username: pluginConfig.username ?? 'OpenClaw Agent',
-                iconEmoji: pluginConfig.iconEmoji ?? ':robot:',
-                iconUrl: pluginConfig.iconUrl,
-            });
+            return {
+                client: new MattermostClient({
+                    webhookUrl,
+                    baseUrl: account?.url || defaultBaseUrl,
+                    botToken: account?.token,
+                    channel: pluginConfig.channel,
+                    username: pluginConfig.username ?? 'OpenClaw Agent',
+                    iconEmoji: pluginConfig.iconEmoji ?? ':robot:',
+                    iconUrl: pluginConfig.iconUrl,
+                }),
+                accountName: selectedAccountName
+            };
         };
         // Check if we have any valid configuration
         if (botAccounts.size === 0 && !webhookUrl) {
@@ -185,13 +189,13 @@ const plugin = {
                 acceptsArgs: false,
                 requireAuth: true,
                 handler: async (ctx) => {
-                    const sessionKey = ctx.senderId ?? lastSenderId ?? 'default';
+                    const sessionKey = ctx.senderId ?? 'default';
                     stoppedSessions.add(sessionKey);
                     console.log('[mattermost-toolchain-poster] Session halted:', sessionKey);
                     // Also post to Mattermost
-                    const client = getClient();
-                    if (client?.hasRestApi() && (ctx.senderId || lastSenderId)) {
-                        await client.postToDm(ctx.senderId || lastSenderId, '🛑 Agent halted. Tool calls will be blocked until you send a new message.');
+                    const { client } = getClient();
+                    if (client?.hasRestApi() && ctx.senderId) {
+                        await client.postToDm(ctx.senderId, '🛑 Agent halted. Tool calls will be blocked until you send a new message.');
                     }
                     return { text: '🛑 Agent halted. Tool calls will be blocked until you send a new message.' };
                 },
@@ -202,7 +206,7 @@ const plugin = {
                 acceptsArgs: false,
                 requireAuth: true,
                 handler: async (ctx) => {
-                    const sessionKey = ctx.senderId ?? lastSenderId ?? 'default';
+                    const sessionKey = ctx.senderId ?? 'default';
                     if (stoppedSessions.has(sessionKey)) {
                         stoppedSessions.delete(sessionKey);
                         console.log('[mattermost-toolchain-poster] Session unhalted:', sessionKey);
@@ -216,17 +220,34 @@ const plugin = {
         // Hook: message_received - capture sender ID for DM posting and clear stop state
         api.on('message_received', async (...args) => {
             const event = args[0];
-            // Get senderId from metadata for posting to DM
+            const ctx = args[1];
+            // Get senderId and sessionKey from metadata for posting to DM
             const senderId = event.metadata?.senderId;
+            const sessionKey = event.metadata?.sessionKey || ctx.conversationId;
+            const accountId = ctx.accountId;
+            const timestamp = Date.now();
             if (senderId) {
-                lastSenderId = senderId;
-                console.log('[mattermost-toolchain-poster] Captured sender ID:', lastSenderId);
-                // Clear halt state on new user message (unless it's a /halt or /unhalt command)
-                if (!event.content.startsWith('/halt') && !event.content.startsWith('/unhalt')) {
-                    if (stoppedSessions.has(senderId)) {
-                        stoppedSessions.delete(senderId);
-                        console.log('[mattermost-toolchain-poster] Session auto-resumed on new message');
+                const entry = { senderId, timestamp };
+                // Map the direct session/conversation
+                if (sessionKey) {
+                    sessionSenders.set(sessionKey, entry);
+                    if (!sessionKey.startsWith('agent:')) {
+                        sessionSenders.set(`agent:${sessionKey}`, entry);
                     }
+                }
+                // Critical: Map the Agent that sent this message to this user
+                // This allows tool calls using "agent:AGENT_NAME:main" to find this user
+                if (accountId) {
+                    sessionSenders.set(accountId, entry);
+                    sessionSenders.set(`agent:${accountId}:main`, entry);
+                    console.log(`[mattermost-toolchain-poster] Linked user ${senderId} to agent/account ${accountId}`);
+                }
+            }
+            // Clear halt state on new user message
+            if (senderId && !event.content.startsWith('/halt') && !event.content.startsWith('/unhalt')) {
+                if (stoppedSessions.has(senderId)) {
+                    stoppedSessions.delete(senderId);
+                    console.log('[mattermost-toolchain-poster] Session auto-resumed on new message');
                 }
             }
         });
@@ -237,24 +258,12 @@ const plugin = {
             const event = args[0];
             const ctx = args[1];
             const { toolName, params } = event;
+            // 1. Initial debug logs
             console.debug('[mattermost-toolchain-poster] === BEFORE_TOOL_CALL ===');
             console.debug('[mattermost-toolchain-poster] Tool:', toolName);
             console.debug('[mattermost-toolchain-poster] Session key:', ctx.sessionKey);
-            console.debug('[mattermost-toolchain-poster] Last sender ID:', lastSenderId);
-            console.debug('[mattermost-toolchain-poster] Excluded tools:', [...excludedTools]);
             // Store session key for use in after_tool_call
             lastSessionKey = ctx.sessionKey;
-            // Check if session is stopped - block all tool calls if so (only when halt commands enabled)
-            if (enableHaltCommands) {
-                const sessionKey = lastSenderId ?? ctx.sessionKey ?? 'default';
-                if (stoppedSessions.has(sessionKey)) {
-                    console.log('[mattermost-toolchain-poster] Blocking tool call - session stopped:', toolName);
-                    return {
-                        block: true,
-                        blockReason: 'Agent was stopped by user. Send a new message to resume.',
-                    };
-                }
-            }
             // Skip excluded tools
             if (excludedTools.has(toolName)) {
                 console.debug('[mattermost-toolchain-poster] Skipping excluded tool:', toolName);
@@ -262,22 +271,54 @@ const plugin = {
             }
             const message = formatToolCall(toolName, params);
             console.debug('[mattermost-toolchain-poster] Formatted message:', message.substring(0, 200));
+            // 2. Select appropriate Mattermost account for this agent
+            const { client, accountName } = getClient(ctx.sessionKey);
+            if (!client) {
+                console.warn('[mattermost-toolchain-poster] No client available for posting');
+                return undefined;
+            }
+            // 3. Resolve sender ID for the session with strict separation for cron/subagents
+            let senderId;
+            const sessionEntry = sessionSenders.get(ctx.sessionKey ?? '');
+            if (sessionEntry) {
+                senderId = sessionEntry.senderId;
+                console.debug('[mattermost-toolchain-poster] Resolved sender from session mapping:', senderId);
+            }
+            else {
+                // Fallback to account-based lookup (who last talked to this bot account?)
+                const accountEntry = sessionSenders.get(accountName);
+                if (accountEntry) {
+                    // Only fallback if the message was received recently (within 30 mins)
+                    // AND it's not a subagent session (as per user request)
+                    const isFresh = (Date.now() - accountEntry.timestamp) < 30 * 60 * 1000;
+                    const isSubagent = ctx.sessionKey?.includes(':sub:');
+                    if (isFresh && !isSubagent) {
+                        senderId = accountEntry.senderId;
+                        console.log(`[mattermost-toolchain-poster] Using fresh account sender fallback: ${senderId} for ${accountName}`);
+                    }
+                }
+            }
+            // NO FALLBACK for cron jobs or subagents to prevent DM pollution as per user request.
+            // If we don't have a direct user-session link, it goes to the channel.
+            // 4. Check if session is stopped
+            if (enableHaltCommands && senderId && stoppedSessions.has(senderId)) {
+                console.log('[mattermost-toolchain-poster] Blocking tool call - session stopped:', toolName);
+                return {
+                    block: true,
+                    blockReason: 'Agent interaction halted via /halt command.'
+                };
+            }
             const toolCallId = `${ctx.sessionKey ?? 'default'}-${toolName}-${Date.now()}`;
             try {
                 let postId;
-                const client = getClient(ctx.sessionKey);
-                if (!client) {
-                    console.warn('[mattermost-toolchain-poster] No client available for posting');
-                    return undefined;
-                }
-                // Try to post to DM if we have REST API and sender ID
-                if (postToConversation && client.hasRestApi() && lastSenderId) {
-                    console.log('[mattermost-toolchain-poster] Posting tool call to DM with user:', lastSenderId);
-                    postId = await client.postToDm(lastSenderId, message);
+                // Try to post to DM if we have a resolved sender
+                if (postToConversation && client.hasRestApi() && senderId) {
+                    console.log('[mattermost-toolchain-poster] Posting tool call to DM with user:', senderId);
+                    postId = await client.postToDm(senderId, message);
                 }
                 else {
-                    // Fall back to webhook
-                    console.log('[mattermost-toolchain-poster] Posting tool call via webhook');
+                    // Fall back to webhook for cron jobs, subagents, or channel contexts
+                    console.log('[mattermost-toolchain-poster] Posting tool call via webhook (no direct user context)');
                     postId = await client.postToWebhook(message);
                 }
                 pendingCalls.set(toolCallId, {
@@ -288,17 +329,14 @@ const plugin = {
             }
             catch (error) {
                 console.error('[mattermost-toolchain-poster] Failed to post tool call:', error);
-                // Try webhook as fallback
+                // Try webhook as last resort fallback
                 try {
-                    const fallbackClient = getClient(ctx.sessionKey);
-                    if (fallbackClient)
-                        await fallbackClient.postToWebhook(message);
+                    await client.postToWebhook(message);
                 }
                 catch (webhookError) {
                     console.error('[mattermost-toolchain-poster] Webhook fallback also failed:', webhookError);
                 }
             }
-            console.log('[mattermost-toolchain-poster] Returning from before_tool_call hook');
             return undefined;
         });
         // Hook: tool_result_persist (sync hook that fires after tool execution)
@@ -327,15 +365,31 @@ const plugin = {
             // We can't await here, so just call the async function
             const postResult = async () => {
                 try {
-                    const client = getClient(lastSessionKey);
+                    const { client, accountName } = getClient(lastSessionKey);
                     if (!client)
                         return;
-                    // Try to post to DM if we have REST API and sender ID
-                    if (postToConversation && client.hasRestApi() && lastSenderId) {
-                        console.log('[mattermost-toolchain-poster] Posting tool result to DM with user:', lastSenderId);
-                        await client.postToDm(lastSenderId, formattedMessage);
+                    let senderId;
+                    const sessionEntry = sessionSenders.get(lastSessionKey ?? '');
+                    if (sessionEntry) {
+                        senderId = sessionEntry.senderId;
                     }
                     else {
+                        // Fallback for results
+                        const accountEntry = sessionSenders.get(accountName);
+                        if (accountEntry) {
+                            const isFresh = (Date.now() - accountEntry.timestamp) < 30 * 60 * 1000;
+                            const isSubagent = lastSessionKey?.includes(':sub:');
+                            if (isFresh && !isSubagent) {
+                                senderId = accountEntry.senderId;
+                            }
+                        }
+                    }
+                    if (postToConversation && client.hasRestApi() && senderId) {
+                        console.log('[mattermost-toolchain-poster] Posting tool result to DM with user:', senderId);
+                        await client.postToDm(senderId, formattedMessage);
+                    }
+                    else {
+                        console.log('[mattermost-toolchain-poster] Posting tool result via webhook (channel/cron)');
                         await client.postToWebhook(formattedMessage);
                     }
                 }
@@ -343,7 +397,7 @@ const plugin = {
                     console.error('[mattermost-toolchain-poster] Failed to post tool result:', err);
                     // Try webhook as fallback
                     try {
-                        const fallbackClient = getClient(lastSessionKey);
+                        const { client: fallbackClient } = getClient(lastSessionKey);
                         if (fallbackClient)
                             await fallbackClient.postToWebhook(formattedMessage);
                     }
